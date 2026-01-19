@@ -129,7 +129,7 @@ const getUserFriendshipStats = async (username) => {
 // Replace "example_username" below with your instagram username
 //
 // Change this:
-username = "aomsin.nimsombun";
+username = "aomsin.nims";
 //
 //
 //
