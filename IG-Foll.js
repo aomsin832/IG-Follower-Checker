@@ -1,136 +1,242 @@
-if (window.location.origin !== "https://www.instagram.com") {
-  window.alert(
-    "Hey! You need to be on the instagram site before you run the code. I'm taking you there now but you're going to have to run the code into the console again.",
-  );
-  window.location.href = "https://www.instagram.com";
-  console.clear();
-}
-
-const fetchOptions = {
-  credentials: "include",
-  headers: {
-    "X-IG-App-ID": "936619743392459",
-  },
-  method: "GET",
-};
-
-let username;
-
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-const random = (min, max) => Math.floor(Math.random() * (max - min)) + min;
-
-// This function handles all of the pagination logic
-// Calls the API recursively until there are no more pages to load
-const concatFriendshipsApiResponse = async (
-  list,
-  user_id,
-  count,
-  next_max_id = "",
-) => {
-  let url = `https://www.instagram.com/api/v1/friendships/${user_id}/${list}/?count=${count}`;
-  if (next_max_id) {
-    url += `&max_id=${next_max_id}`;
+(() => {
+  if (window.location.origin !== "https://www.instagram.com") {
+    window.alert("Open instagram.com, log in, then run this script again.");
+    window.location.href = "https://www.instagram.com";
+    return;
   }
 
-  const data = await fetch(url, fetchOptions).then((r) => r.json());
+  const FAMOUS_STORAGE_KEY = "ig-follow-checker:famous-accounts";
 
-  if (data.next_max_id) {
-    const timeToSleep = random(800, 1500);
-    console.log(
-      `Loaded ${data.users.length} ${list}. Sleeping ${timeToSleep}ms to avoid rate limiting`,
-    );
+  const getCookie = (name) =>
+    document.cookie
+      .split("; ")
+      .find((row) => row.startsWith(\`\${name}=\`))
+      ?.split("=")
+      .slice(1)
+      .join("=");
 
-    await sleep(timeToSleep);
-
-    return data.users.concat(
-      await concatFriendshipsApiResponse(
-        list,
-        user_id,
-        count,
-        data.next_max_id,
+  const getFamousAccounts = () =>
+    new Set(
+      JSON.parse(localStorage.getItem(FAMOUS_STORAGE_KEY) || "[]").map((name) =>
+        name.toLowerCase(),
       ),
     );
-  }
 
-  return data.users;
-};
+  const saveFamousAccounts = (accounts) =>
+    localStorage.setItem(
+      FAMOUS_STORAGE_KEY,
+      JSON.stringify([...accounts].map((name) => name.toLowerCase()).sort()),
+    );
 
-// helper methods to make the code a bit more readable
-const getFollowers = (user_id, count = 50, next_max_id = "") => {
-  return concatFriendshipsApiResponse("followers", user_id, count, next_max_id);
-};
-
-const getFollowing = (user_id, count = 50, next_max_id = "") => {
-  return concatFriendshipsApiResponse("following", user_id, count, next_max_id);
-};
-
-const getUserId = async (username) => {
-  let user = username;
-
-  const lower = user.toLowerCase();
-  const url = `https://www.instagram.com/api/v1/web/search/topsearch/?context=blended&query=${lower}&include_reel=false`;
-  const data = await fetch(url, fetchOptions).then((r) => r.json());
-
-  const result = data.users?.find(
-    (result) => result.user.username.toLowerCase() === lower,
-  );
-
-  return result?.user?.pk || null;
-};
-
-const getUserFriendshipStats = async (username) => {
-  const user_id = await getUserId(username);
-
-  if (!user_id) {
-    throw new Error(`Could not find user with username ${username}`);
-  }
-
-  const followers = await getFollowers(user_id);
-  const following = await getFollowing(user_id);
-
-  const followersUsernames = followers.map((follower) =>
-    follower.username.toLowerCase(),
-  );
-  const followingUsernames = following.map((followed) =>
-    followed.username.toLowerCase(),
-  );
-
-  const followerSet = new Set(followersUsernames);
-  const followingSet = new Set(followingUsernames);
-
-  console.log(Array(28).fill("-").join(""));
-  console.log(
-    `Fetched`,
-    followerSet.size,
-    "followers and ",
-    followingSet.size,
-    " following.",
-  );
-
-  console.log(
-    `If this doesn't seem right then some of the output might be inaccurate`,
-  );
-
-  const PeopleIDontFollowBack = Array.from(followerSet).filter(
-    (follower) => !followingSet.has(follower),
-  );
-
-  const PeopleNotFollowingMeBack = Array.from(followingSet).filter(
-    (following) => !followerSet.has(following),
-  );
-
-  return {
-    PeopleIDontFollowBack,
-    PeopleNotFollowingMeBack,
+  // These commands remain available after a scan:
+  // igFamous.add("leomessi", "nike");
+  // igFamous.remove("nike");
+  // igFamous.list();
+  window.igFamous = {
+    list: () => [...getFamousAccounts()],
+    add: (...accounts) => {
+      const saved = getFamousAccounts();
+      accounts.forEach((account) =>
+        saved.add(account.replace(/^@/, "").toLowerCase()),
+      );
+      saveFamousAccounts(saved);
+      console.log("Saved famous accounts:", [...saved]);
+    },
+    remove: (...accounts) => {
+      const saved = getFamousAccounts();
+      accounts.forEach((account) =>
+        saved.delete(account.replace(/^@/, "").toLowerCase()),
+      );
+      saveFamousAccounts(saved);
+      console.log("Saved famous accounts:", [...saved]);
+    },
   };
-};
 
-// Make sure you don't delete the quotes
-// Replace "example_username" below with your instagram username
-//
-// Change this:
-username = "aomsin.nim";
-//
-//
-//
-getUserFriendshipStats(username).then(console.log);
+  const headers = {
+    "X-IG-App-ID": "936619743392459",
+    "X-Requested-With": "XMLHttpRequest",
+    Accept: "application/json, text/plain, */*",
+  };
+
+  const sleep = (milliseconds) =>
+    new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+  const fetchJson = async (url, label) => {
+    const response = await fetch(url, {
+      credentials: "include",
+      headers,
+      method: "GET",
+    });
+
+    const text = await response.text();
+
+    if (!response.ok) {
+      throw new Error(\`\${label} failed (\${response.status}): \${text.slice(0, 120)}\`);
+    }
+
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new Error(\`\${label} returned a webpage instead of JSON.\`);
+    }
+  };
+
+  const uniqueAccounts = (accounts) => {
+    const seen = new Map();
+
+    accounts.forEach((account) => {
+      const username = account?.username?.toLowerCase();
+      if (username && !seen.has(username)) {
+        seen.set(username, account);
+      }
+    });
+
+    return [...seen.values()];
+  };
+
+  const getMyUserId = async () => {
+    const cookieId = getCookie("ds_user_id");
+
+    if (cookieId && /^\d+$/.test(cookieId)) {
+      return cookieId;
+    }
+
+    const data = await fetchJson(
+      "/api/v1/accounts/current_user/?edit=true",
+      "Checking Instagram login",
+    );
+
+    const userId = data?.user?.pk ?? data?.user?.id;
+
+    if (!userId) {
+      throw new Error(
+        "Could not identify your signed-in account. Refresh Instagram, confirm you are logged in, and try again.",
+      );
+    }
+
+    return String(userId);
+  };
+
+  const getAllAccounts = async (type, userId, cursor = "") => {
+    const url = new URL(
+      \`/api/v1/friendships/\${userId}/\${type}/\`,
+      window.location.origin,
+    );
+
+    url.searchParams.set("count", "50");
+
+    if (cursor) {
+      url.searchParams.set("max_id", cursor);
+    }
+
+    const data = await fetchJson(url, \`Loading \${type}\`);
+
+    if (!Array.isArray(data.users)) {
+      throw new Error(\`Instagram did not return a valid \${type} list.\`);
+    }
+
+    console.log(\`Loaded \${data.users.length} \${type}...\`);
+
+    if (!data.next_max_id) {
+      return data.users;
+    }
+
+    await sleep(1100);
+    return data.users.concat(
+      await getAllAccounts(type, userId, data.next_max_id),
+    );
+  };
+
+  const scan = async () => {
+    try {
+      console.log("Finding your Instagram account...");
+      const userId = await getMyUserId();
+
+      console.log("Loading followers and following. Keep this tab open...");
+      const [rawFollowers, rawFollowing] = await Promise.all([
+        getAllAccounts("followers", userId),
+        getAllAccounts("following", userId),
+      ]);
+
+      const followers = uniqueAccounts(rawFollowers);
+      const following = uniqueAccounts(rawFollowing);
+
+      const followerUsernames = new Set(
+        followers.map((account) => account.username.toLowerCase()),
+      );
+
+      const followingUsernames = new Set(
+        following.map((account) => account.username.toLowerCase()),
+      );
+
+      const notFollowingBack = following
+        .filter(
+          (account) => !followerUsernames.has(account.username.toLowerCase()),
+        )
+        .sort((a, b) => a.username.localeCompare(b.username));
+
+      const peopleIDontFollowBack = followers
+        .filter(
+          (account) => !followingUsernames.has(account.username.toLowerCase()),
+        )
+        .map((account) => account.username)
+        .sort((a, b) => a.localeCompare(b));
+
+      const famousAccounts = getFamousAccounts();
+
+      const famousNotFollowingBack = notFollowingBack.filter((account) =>
+        famousAccounts.has(account.username.toLowerCase()),
+      );
+
+      const regularNotFollowingBack = notFollowingBack.filter(
+        (account) => !famousAccounts.has(account.username.toLowerCase()),
+      );
+
+      window.igResults = {
+        peopleIDontFollowBack,
+        regularNotFollowingBack: regularNotFollowingBack.map(
+          (account) => account.username,
+        ),
+        famousNotFollowingBack: famousNotFollowingBack.map(
+          (account) => account.username,
+        ),
+      };
+
+      console.log("──────── RESULTS ────────");
+      console.log(\`Followers: \${followers.length}\`);
+      console.log(\`Following: \${following.length}\`);
+      console.log(
+        \`Regular accounts not following back: \${regularNotFollowingBack.length}\`,
+      );
+      console.log(
+        \`Famous accounts not following back: \${famousNotFollowingBack.length}\`,
+      );
+
+      console.log("Regular accounts not following you back:");
+      console.table(
+        regularNotFollowingBack.map((account) => ({
+          username: account.username,
+          name: account.full_name,
+          verified: account.is_verified,
+        })),
+      );
+
+      if (famousNotFollowingBack.length) {
+        console.log("Saved famous accounts not following you back:");
+        console.table(
+          famousNotFollowingBack.map((account) => ({
+            username: account.username,
+            name: account.full_name,
+            verified: account.is_verified,
+          })),
+        );
+      }
+
+      console.log("Copyable result object: window.igResults");
+    } catch (error) {
+      console.error("IG checker error:", error.message);
+    }
+  };
+
+  scan();
+})();
